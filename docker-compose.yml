@@ -1,11 +1,11 @@
-version: '3.8'
+version: "3.8"
 
 services:
   fastapi-app:
     build:
       context: .
     volumes:
-      # Mount the local app directory to the /code/app directory in the container    
+      # Mount the local app directory to the /code/app directory in the container
       - ./app:/code/app
     env_file:
       - .env

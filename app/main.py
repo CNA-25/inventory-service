@@ -13,13 +13,24 @@ app = FastAPI()
 #           
 # =============================
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+MODE = os.getenv("MODE")
+DATABASE_URL = os.getenv("DATABASE_URL_DEV") if MODE == "development" else os.getenv("DATABASE_URL_PROD")
 #DATABASE_URL = "postgresql://postgres:root@host.docker.internal:5432/product-inventory" # LOCAL
 database = Database(DATABASE_URL)
 
 @app.on_event("startup")
 async def startup():
     await database.connect()
+    query = """
+    CREATE TABLE IF NOT EXISTS Products (
+        Id SERIAL PRIMARY KEY,
+        SKU VARCHAR(100) UNIQUE NOT NULL,
+        Stock INT NOT NULL,
+        created_at TIMESTAMP DEFAULT now(),
+        updated_at TIMESTAMP DEFAULT now()
+    );
+    """
+    await database.execute(query=query)
 
 @app.on_event("shutdown")
 async def shutdown():
