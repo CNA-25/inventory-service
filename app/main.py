@@ -61,14 +61,14 @@ app.openapi = custom_openapi
 # =============================
 
 @app.get("/inventory", response_model=list[Product], tags=["Inventory"])
-async def get_inventory(user: dict = Depends(get_current_user)):
+async def get_inventory():
     query = "SELECT id, sku, stock FROM products"
     rows = await database.fetch_all(query)
     products = [Product(productCode=row["sku"], stock=row["stock"]) for row in rows]
     return products
 
 @app.get("/inventory/{productCode}", tags=["Inventory"])
-async def get_product_stock(productCode: str, user: dict = Depends(get_current_user)):
+async def get_product_stock(productCode: str):
     query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
     row = await database.fetch_one(query, values={"productCode": productCode})
     if row is None:
