@@ -1,10 +1,10 @@
+import os
 from databases import Database
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.openapi.utils import get_openapi
-from app.classes import  *
-from app.inventory import inventory
-from app.utils import *
-from app.auth.dependencies import *
+from app.classes import Product, ProductCreate, StockRequest, DecreaseStockMultipleRequest, ProductDeleteRequest
+from app.utils import ensure_valid_quantity
+from app.auth.dependencies import get_current_user, get_current_admin_user
 
 app = FastAPI()
 
@@ -14,7 +14,6 @@ app = FastAPI()
 # =============================
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-#DATABASE_URL = "postgresql://postgres:root@host.docker.internal:5432/product-inventory" # LOCAL
 database = Database(DATABASE_URL)
 
 @app.on_event("startup")
@@ -56,40 +55,51 @@ app.openapi = custom_openapi
 # =============================
 
 @app.get("/inventory", response_model=list[Product], tags=["Inventory"])
-def get_inventory():
-    return list(inventory.values())
+async def get_inventory():
+    query = "SELECT id, sku, stock FROM products"
+    rows = await database.fetch_all(query)
+    products = [Product(productCode=row["sku"], stock=row["stock"]) for row in rows]
+    return products
 
 @app.get("/inventory/{productCode}", tags=["Inventory"])
-def get_product_stock(productCode: str):
-    product_id = check_product_exists(inventory, productCode)
-    product = inventory[product_id]
-    return {"productCode": product.productCode, "stock": product.stock}
+async def get_product_stock(productCode: str):
+    query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
+    row = await database.fetch_one(query, values={"productCode": productCode})
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Produkten {productCode} finns inte")
+    return {"productCode": row["sku"], "stock": row["stock"]}
 
-@app.post("/inventory", response_model=List[Product], status_code=201, tags=["Inventory Management"])
-def create_products(
-    products: List[Product],
+@app.post("/inventory", response_model=list[Product], status_code=201, tags=["Inventory Management"])
+async def create_products(
+    products: list[ProductCreate],
     admin: dict = Depends(get_current_admin_user)
 ):
     new_products = []
     for product in products:
-        new_id = max(inventory.keys(), default=0) + 1  
-        new_product = Product(id=new_id, productCode=product.productCode, stock=product.stock)
-        inventory[new_id] = new_product
-        new_products.append(new_product)
+        query = """
+            INSERT INTO products (sku, stock) 
+            VALUES (:productCode, :stock) 
+            RETURNING id, sku, stock
+        """
+        row = await database.fetch_one(query, values={"productCode": product.productCode, "stock": product.stock})
+        new_products.append(Product(productCode=row["sku"], stock=row["stock"]))
     return new_products
 
 @app.delete("/inventory", status_code=200, tags=["Inventory Management"])
-def delete_products(
-    requests: List[ProductDeleteRequest],
+async def delete_products(
+    requests: list[ProductDeleteRequest],
     admin: dict = Depends(get_current_admin_user)
 ):
     messages = []
     for request in requests:
-        product_id = check_product_exists(inventory, request.productCode)
-        deleted_product = inventory.pop(product_id)
-        messages.append(f"Produkten {deleted_product.productCode} är borttagen")
+        query = "SELECT id, sku FROM products WHERE sku = :productCode"
+        row = await database.fetch_one(query, values={"productCode": request.productCode})
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Produkten {request.productCode} finns inte")
+        delete_query = "DELETE FROM products WHERE sku = :productCode"
+        await database.execute(delete_query, values={"productCode": request.productCode})
+        messages.append(f"Produkten {request.productCode} är borttagen")
     return {"message": messages}
-
 
 # =============================
 #        INVENTORY SALDO
@@ -97,38 +107,44 @@ def delete_products(
 # =============================
 
 @app.post("/inventory/increase", response_model=Product, tags=["Stock Management"])
-def increase_stock(
+async def increase_stock(
     request: StockRequest,
     admin: dict = Depends(get_current_admin_user)
 ):
-    product_id = check_product_exists(inventory, request.productCode)
+    query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
+    row = await database.fetch_one(query, values={"productCode": request.productCode})
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Produkten {request.productCode} finns inte")
     ensure_valid_quantity(request.quantity)
+    update_query = """
+        UPDATE products SET stock = stock + :quantity 
+        WHERE sku = :productCode 
+        RETURNING id, sku, stock
+    """
+    updated = await database.fetch_one(update_query, values={"quantity": request.quantity, "productCode": request.productCode})
+    return Product(productCode=updated["sku"], stock=updated["stock"])
 
-    inventory[product_id] = inventory[product_id].model_copy(update={"stock": inventory[product_id].stock + request.quantity})
-    return inventory[product_id]
-
-@app.post("/inventory/decrease", response_model=List[Product], tags=["Stock Management"])
-def decrease_stock(
+@app.post("/inventory/decrease", response_model=list[Product], tags=["Stock Management"])
+async def decrease_stock(
     request: DecreaseStockMultipleRequest, 
     user: dict = Depends(get_current_user)
 ):
-    """
-    Decreases stock for multiple products.
-    Requires admin authentication via JWT.
-    """
     updated_products = []
-
     for item in request.items:
-        product_id = check_product_exists(inventory, item.productCode)
+        query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
+        row = await database.fetch_one(query, values={"productCode": item.productCode})
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Produkten {item.productCode} finns inte")
         ensure_valid_quantity(item.quantity)
-
-        product = inventory[product_id]
-        if product.stock < item.quantity:
+        if row["stock"] < item.quantity:
             raise HTTPException(status_code=400, detail=f"Inte tillräckligt med lagersaldo för {item.productCode}")
-
-        inventory[product_id] = product.model_copy(update={"stock": product.stock - item.quantity})
-        updated_products.append(inventory[product_id])
-
+        update_query = """
+            UPDATE products SET stock = stock - :quantity 
+            WHERE sku = :productCode 
+            RETURNING id, sku, stock
+        """
+        updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
+        updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
     send_shipping_confirmation(request.email, updated_products)
     return updated_products
 
@@ -137,11 +153,7 @@ def decrease_stock(
 #     Kalla på shipping api
 # =============================
 
-def send_shipping_confirmation(
-        email: str, 
-        products: list[Product],
-        user: dict = Depends(get_current_user)
-        ):
+def send_shipping_confirmation(email: str, products: list[Product], user: dict = Depends(get_current_user)):
     print(f"Skickar shippingbekräftelse till {email} för produkterna:")
     for product in products:
         print(f"{product.productCode}: {product.stock}st")

@@ -1,7 +1,6 @@
 from fastapi import HTTPException
 from typing import Dict, Optional
 from app.classes import  *
-from app.inventory import *
 
 # =============================
 #  Om ni har funktioner som 
