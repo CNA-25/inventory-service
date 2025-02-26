@@ -56,11 +56,11 @@ app.openapi = custom_openapi
 # =============================
 
 @app.get("/inventory", response_model=list[Product], tags=["Inventory"])
-def get_inventory(user: dict = Depends(get_current_user)):
+def get_inventory():
     return list(inventory.values())
 
 @app.get("/inventory/{productCode}", tags=["Inventory"])
-def get_product_stock(productCode: str, user: dict = Depends(get_current_user)):
+def get_product_stock(productCode: str):
     product_id = check_product_exists(inventory, productCode)
     product = inventory[product_id]
     return {"productCode": product.productCode, "stock": product.stock}
