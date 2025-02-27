@@ -129,24 +129,27 @@ async def decrease_stock(
     request: DecreaseStockMultipleRequest, 
     user: dict = Depends(get_current_user)
 ):
-    updated_products = []
-    for item in request.items:
-        query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
-        row = await database.fetch_one(query, values={"productCode": item.productCode})
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"Produkten {item.productCode} finns inte")
-        ensure_valid_quantity(item.quantity)
-        if row["stock"] < item.quantity:
-            raise HTTPException(status_code=400, detail=f"Inte tillräckligt med lagersaldo för {item.productCode}")
-        update_query = """
-            UPDATE products SET stock = stock - :quantity 
-            WHERE sku = :productCode 
-            RETURNING id, sku, stock
-        """
-        updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
-        updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
-    send_shipping_confirmation(request.email, updated_products)
-    return updated_products
+    async with database.transaction():
+        updated_products = []
+        for item in request.items:
+            # Lås raden för att undvika race conditions
+            query = "SELECT id, sku, stock FROM products WHERE sku = :productCode FOR UPDATE"
+            row = await database.fetch_one(query, values={"productCode": item.productCode})
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Produkten {item.productCode} finns inte")
+            ensure_valid_quantity(item.quantity)
+            if row["stock"] < item.quantity:
+                raise HTTPException(status_code=400, detail=f"Inte tillräckligt med lagersaldo för {item.productCode}")
+            update_query = """
+                UPDATE products SET stock = stock - :quantity 
+                WHERE sku = :productCode 
+                RETURNING id, sku, stock
+            """
+            updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
+            updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
+        send_shipping_confirmation(request.email, updated_products)
+        return updated_products
+
 
 # =============================
 #           SHIPPING
