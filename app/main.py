@@ -1,6 +1,7 @@
 import os
+from typing import List
 from databases import Database
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.openapi.utils import get_openapi
 from app.classes import Product, ProductCreate, StockRequest, DecreaseStockMultipleRequest, ProductDeleteRequest
 from app.utils import ensure_valid_quantity
@@ -55,19 +56,21 @@ app.openapi = custom_openapi
 # =============================
 
 @app.get("/inventory", response_model=list[Product], tags=["Inventory"])
-async def get_inventory():
+async def get_full_inventory_stock():
     query = "SELECT id, sku, stock FROM products"
     rows = await database.fetch_all(query)
     products = [Product(productCode=row["sku"], stock=row["stock"]) for row in rows]
     return products
 
-@app.get("/inventory/{productCode}", tags=["Inventory"])
-async def get_product_stock(productCode: str):
-    query = "SELECT id, sku, stock FROM products WHERE sku = :productCode"
-    row = await database.fetch_one(query, values={"productCode": productCode})
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"Produkten {productCode} finns inte")
-    return {"productCode": row["sku"], "stock": row["stock"]}
+@app.get("/inventory/", response_model=List[Product], tags=["Inventory"])
+async def get_stock_for_multiple_products(
+    productCodes: List[str] = Query(..., example=["foo", "bar"])
+):
+    query = "SELECT id, sku, stock FROM products WHERE sku = ANY(:codes)"
+    rows = await database.fetch_all(query, values={"codes": tuple(productCodes)})
+    if not rows:
+        raise HTTPException(status_code=404, detail="Produkter finns inte")
+    return [Product(productCode=row["sku"], stock=row["stock"]) for row in rows]
 
 @app.post("/inventory", response_model=list[Product], status_code=201, tags=["Inventory Management"])
 async def create_products(
@@ -132,7 +135,6 @@ async def decrease_stock(
     async with database.transaction():
         updated_products = []
         for item in request.items:
-            # Lås raden för att undvika race conditions
             query = "SELECT id, sku, stock FROM products WHERE sku = :productCode FOR UPDATE"
             row = await database.fetch_one(query, values={"productCode": item.productCode})
             if row is None:
