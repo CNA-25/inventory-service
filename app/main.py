@@ -1,4 +1,4 @@
-import os, requests
+import os
 from typing import List
 from databases import Database
 from fastapi import FastAPI, HTTPException, Depends, Query
@@ -149,7 +149,7 @@ async def decrease_stock(
             """
             updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
             updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
-        send_shipping_confirmation(user.email, updated_products)
+        send_shipping_confirmation(request.email, updated_products)
         return updated_products
 
 
@@ -159,20 +159,6 @@ async def decrease_stock(
 # =============================
 
 def send_shipping_confirmation(email: str, products: list[Product], user: dict = Depends(get_current_user)):
-    product_details = "\n".join([f"{product.productCode}: {product.stock}st" for product in products])
-    body = f"Skickar shippingbekräftelse till {email} för produkterna:\n{product_details}"
-    subject = "Shipping Confirmation"
-
-    response = requests.post(
-        'https://email-service-git-email-service-api.2.rahtiapp.fi/shipping',
-        json={
-            'to': email,
-            'subject': subject,
-            'body': body
-        }
-    )
-
-    if response.status_code == 200:
-        print("Shipping confirmation sent successfully.")
-    else:
-        print(f"Failed to send shipping confirmation. Status code: {response.status_code}, Response: {response.text}")
+    print(f"Skickar shippingbekräftelse till {email} för produkterna:")
+    for product in products:
+        print(f"{product.productCode}: {product.stock}st")
