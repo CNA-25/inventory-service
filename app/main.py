@@ -6,8 +6,19 @@ from fastapi.openapi.utils import get_openapi
 from app.classes import Product, ProductCreate, StockRequest, DecreaseStockMultipleRequest, ProductDeleteRequest
 from app.utils import ensure_valid_quantity
 from app.auth.dependencies import get_current_user, get_current_admin_user
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # =============================
 #           DATABASE
