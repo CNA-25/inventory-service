@@ -33,7 +33,7 @@ def get_current_user(
         if user_id is None or email is None:
             raise credentials_exception
 
-        return {"user_id": user_id, "email": email, "role": payload.get("role", [])}
+        return {"user_id": user_id, "email": email, "role": payload.get("role", []), "token": token}
 
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=HTTP_401_UNAUTHORIZED, detail="Token har gått ut")
