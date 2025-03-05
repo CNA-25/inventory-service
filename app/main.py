@@ -164,7 +164,6 @@ async def decrease_stock(
         await send_shipping_confirmation(user["token"], updated_products)
         return updated_products
 
-
 # =============================
 #           SHIPPING
 #     Kalla på shipping api
