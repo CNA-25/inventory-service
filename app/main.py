@@ -170,6 +170,19 @@ async def decrease_stock(
 # =============================
 
 def send_shipping_confirmation(email: str, products: list[Product], user: dict = Depends(get_current_user)):
-    print(f"Skickar shippingbekräftelse till {email} för produkterna:")
-    for product in products:
-        print(f"{product.productCode}: {product.stock}st")
+    product_details = "\n".join([f"{product.productCode}: {product.stock}st" for product in products])
+    body = f"Följande produkter har nu skickats: \n{product_details}"
+    subject = "Dina produkter har skickats"
+
+    response = requests.post(
+        'https://email-service-git-email-service-api.2.rahtiapp.fi/shipping',
+        json={
+            'subject': subject,
+            'body': body
+        }
+    )
+
+    if response.status_code == 200:
+        print("Försändelsebekräftelse skickad")
+    else:
+        print(f"Kunde inte skicka försändelsebekräftelse: {response.text}")
