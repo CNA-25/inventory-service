@@ -9,7 +9,6 @@ class ProductDeleteRequest(BaseModel):
     productCode: str 
 
 class DecreaseStockMultipleRequest(BaseModel):
-    email: str
     items: List[StockRequest]
 
 class Product(BaseModel):
