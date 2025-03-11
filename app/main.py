@@ -161,9 +161,9 @@ async def decrease_stock(
             """
             updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
             updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
-        await send_shipping_confirmation(user["token"], updated_products)
+        if "admin" not in user.get("role", []):
+            await send_shipping_confirmation(user["token"], updated_products)
         return updated_products
-
 
 # =============================
 #           SHIPPING
