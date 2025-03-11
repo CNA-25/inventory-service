@@ -146,6 +146,7 @@ async def decrease_stock(
 ):
     async with database.transaction():
         updated_products = []
+        shipped_info = []  # store the ordered quantities
         for item in request.items:
             query = "SELECT id, sku, stock FROM products WHERE sku = :productCode FOR UPDATE"
             row = await database.fetch_one(query, values={"productCode": item.productCode})
@@ -161,8 +162,9 @@ async def decrease_stock(
             """
             updated = await database.fetch_one(update_query, values={"quantity": item.quantity, "productCode": item.productCode})
             updated_products.append(Product(productCode=updated["sku"], stock=updated["stock"]))
+            shipped_info.append({"productCode": item.productCode, "quantity": item.quantity})
         if "admin" not in user.get("role", []):
-            await send_shipping_confirmation(user["token"], updated_products)
+            await send_shipping_confirmation(user["token"], shipped_info)
         return updated_products
 
 # =============================
@@ -170,20 +172,30 @@ async def decrease_stock(
 #     Kalla på shipping api
 # =============================
 
-async def send_shipping_confirmation(token: str, products: list[Product]):
-    product_details = "\n".join([f"{product.productCode}: {product.stock}st" for product in products])
-    body = f"Följande produkter har nu skickats: \n{product_details}"
-    subject = "Dina produkter har skickats"
-
+async def send_shipping_confirmation(token: str, shipped_info: list[dict]):
+    items_details = "<br>".join([f"{item['productCode']}: {item['quantity']} st" for item in shipped_info])
+    body = f"""
+<html>
+  <body>
+    <p>Hej,</p>
+    <p>Din beställning har nu skickats med följande varor:</p>
+    <p>{items_details}</p>
+    <p>Mvh, Beercraft</p>
+  </body>
+</html>
+"""
+    subject = "Beställning skickad"
     response = requests.post(
         'https://email-service-git-email-service-api.2.rahtiapp.fi/shipping',
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        },
         json={
             'subject': subject,
             'body': body
         }
     )
-
     if response.status_code == 200:
         print("Försändelsebekräftelse skickad")
     else:
